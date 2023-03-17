@@ -1,0 +1,266 @@
+---
+title: "LoL - Predictions"
+author: "Lucas Welch"
+date: "2023-01-28"
+---
+
+//Observation: Problem: 
+
+//Observation: Take this data set and find which factor (blueWardsPlaced, blueWardsDestroyed, blueFirstBlood, etc) has the largest correlation to winning the game (blueWins) and explain your process briefly. 
+Create a data visualization of your choice using this data set.
+
+
+# Input the following libraries (Not all will be used)
+```{r}
+library("corrplot")
+library("factoextra")
+library("ggplot2")
+library("randomForest")
+library("igraph")
+library("neuralnet")
+library("tidyverse")
+library("skimr")
+library("caret")
+library("neuralnet")
+```
+
+# Load in the dataset and look at the following variables
+```{r}
+league_data <- read.csv("high_diamond_ranked_10min.csv")
+```
+
+```{r}
+colnames(league_data)
+skim_without_charts(league_data)
+```
+
+# Use correlation matrix using heatmap to analyze variables associated with red team, blue team, and no correlation 
+```{r}
+res = cor(league_data)
+heatmap(res, col = colorRampPalette(c("red", "white", "green"))(20), symm=TRUE, margins = c(10,10))
+```
+
+//Observation: Gives me a visual of the correlation between variables 
+
+# Finding correlation that causes the winning rate for team blue
+# Create a new data set with selected columns
+```{r}
+blue_team <- league_data |> 
+  select(blueKills, blueTotalGold, blueWins, blueTowersDestroyed, blueTotalMinionsKilled, blueHeralds) 
+```
+
+# Create a new column indicating win/loss status
+```{r}
+blue_team2 <- blue_team |> 
+  mutate(BWins = ifelse(blueWins > 0, "Win", "Loss")) 
+```
+
+
+[Test: x > 18,000 Gold]
+
+
+# Filter data to only include games with more than 18000 gold
+# Analyze the effect of having more than 18000 gold on your chances of winning
+```{r}
+blue_team_wins <- blue_team2 |> 
+  filter(blueTotalGold > 18000)
+```
+
+# Summarize win/loss rate for games with more than 18000 gold
+```{r}
+more_than_18000 <- data.frame(winning_chance = sum(blue_team_wins$BWins == "Win") / nrow(blue_team_wins) * 100, 
+                              losing_chance = sum(blue_team_wins$BWins == "Loss") / nrow(blue_team_wins) * 100)
+```
+
+# Plot histogram of blueTotalGold for games with more than 18000 gold
+```{r}
+ggplot(blue_team_wins) + 
+  geom_histogram(mapping = aes(x = blueTotalGold, fill = BWins), bins = 100, alpha = 0.9)
+```
+
+//Observation: Having over 18000 gold gives you an 81% likelihood of winning the game and a 18% likelihood of losing it.
+
+
+[Test: x < 16,000 Gold]
+
+
+# Filter data to only include games with less than 16000 gold
+```{r}
+blue_team_downward_linear <- blue_team2 |> 
+  filter(blueTotalGold < 16000)
+```
+
+# Summarize win/loss rate for games with less than 16000 gold
+```{r}
+less_than_16000 <- data.frame(losing_chance = sum(blue_team_downward_linear$BWins == "Loss") / nrow(blue_team_downward_linear) * 100, 
+                              winning_chance = sum(blue_team_downward_linear$BWins == "Win") / nrow(blue_team_downward_linear) * 100)
+```
+
+# Plot histogram of blueTotalGold for games with less than 16000 gold
+```{r}
+ggplot(blue_team_downward_linear) + 
+  geom_histogram(mapping = aes(x = blueTotalGold, fill = BWins), bins = 100, alpha = 0.9)
+```
+
+//Observation: The analysis shows that if your gold is below 16000, there is a 71% likelihood of losing the game and a 38% chance of winning it.
+
+
+[Test: Minion and Gold Correlation]
+
+
+# MORE gold from minions analysis
+# Create new data set with selected columns
+```{r}
+minions_gold <- league_data |> 
+  select(blueTotalGold, blueTotalMinionsKilled, blueWins)
+```
+
+# Filter data to only include games with more than 18000 gold
+```{r}
+minions_gold_v2 <- minions_gold |> 
+  filter(blueTotalGold > 18000)
+```
+
+# Plot results
+```{r}
+ggplot(data = minions_gold_v2) + geom_jitter(aes(x = blueTotalMinionsKilled, y = blueTotalGold, color = blueWins), show.legend = FALSE) + scale_color_gradient("Wins", low = "10", high = "blue")
+```
+
+//Observation: There is a positive slope for having more minions killed and gold acquired that lead to a win. Therefore, killing more minions results in more gold which allows players surpass 18,000 gold making their chances of winning higher.
+
+
+[Test: tower's Destroyed 0]
+
+
+# Destroying blue tower winning probability
+```{r}
+tower <- league_data |> 
+  select(blueTowersDestroyed, blueTotalGold, blueWins) |> 
+  mutate(BWins = ifelse(blueWins > 0, "Win", "Loss"))
+```
+
+```{r}
+tower_v1 <- tower |> 
+  filter(blueWins == 1 & blueTowersDestroyed == 0) |> 
+  summarize(count = n())
+
+winning_chance <- 4580/9876 * 100
+losing_chance <- 5296/9876 * 100
+tower_0 <- data.frame(winning_chance, losing_chance)
+```
+
+```{r}
+ggplot(tower) + 
+  geom_bar(mapping = aes(x = blueTowersDestroyed, fill = BWins))
+```
+
+```{r}
+ggplot(tower) + 
+  geom_jitter(mapping = aes(x = blueTowersDestroyed, y = blueTotalGold, color = BWins))
+```
+
+//Observation: The probability of winning is estimated to be 46%, whereas the probability of losing stands at 54%. This significant imbalance can greatly impact someone's probability of success and should therefore use other methods to increase probability.
+
+
+[Test: towers destroyed 2+]
+
+
+# Destroy more than 1 tower probability
+# Filter data to only include cases where 2 or more blue towers were destroyed
+# Count the number of wins where 2 or more blue towers were destroyed
+# Calculate winning and losing chances
+```{r}
+tower2 <- tower |> 
+  filter(blueTowersDestroyed >= 2)
+str(tower2)
+
+win_count <- tower2 |>
+filter(blueWins == 1) |>
+summarise(count = n())
+
+winning_chance <- 34/35 * 100
+losing_chance <- 1/35 * 100
+```
+
+# Store the results in a data frame and print
+```{r}
+tower_more_than_or_equal_to_2 <- data.frame(winning_chance = winning_chance, losing_chance = losing_chance)
+print(tower_more_than_or_equal_to_2)
+```
+
+# Plottower destruction vs. win/loss results
+```{r}
+ggplot(data = tower2) +
+geom_bar(mapping = aes(x = blueTowersDestroyed, fill = BWins))
+```
+
+```{r}
+ggplot(tower2) +
+geom_jitter(mapping = aes(x =blueTowersDestroyed, y = blueTotalGold, color = BWins))
+```
+
+//Observation: The probability of winning is estimated to be 97%, whereas the probability of losing stands at 3%. This significant imbalance can greatly impact someone's probability of success.
+
+
+
+[Test: Acquiring Herald]
+(Ran into some issues with the plots)
+
+
+# Heralds and win rate
+```{r}
+ggplot(blue_team2, aes(x = blueHeralds, fill = BWins)) +
+geom_bar()
+```
+
+# Players that did not get herald
+```{r}
+no_herald_results <- blue_team2 |>
+filter(blueHeralds == 0 & BWins == "Win") |>
+summarise(no_herald_wins = n(), winning_chance = 100 * no_herald_wins / nrow(blue_team2))
+print(no_herald_results)
+```
+
+```{r}
+herald <- blue_team2 |>
+filter(blueHeralds == 0)
+```
+
+```{r}
+ggplot(herald, aes(x = blueHeralds, fill = BWins)) +
+geom_bar()
+
+ggplot(herald, aes(x = blueHeralds, y = blueTotalGold, color = BWins)) +
+geom_jitter()
+```
+
+```{r}
+winning_chance <- 3825/8022
+
+losing_chance <- 4197/8022
+
+no_herald <- data.frame(winning_chance = 100 * winning_chance, losing_chance = 100 * losing_chance)
+print(no_herald)
+```
+
+# Players that did get herald analysis
+```{r}
+herald_df <- blue_team2 |> 
+  filter(blueHeralds == 1) |> 
+  select(BWins, blueHeralds)
+```
+
+```{r}
+ggplot(herald_df) + 
+  geom_bar(mapping = aes(x = blueHeralds, fill = BWins))
+```
+
+```{r}
+herald_win_rate <- data.frame(Win = 1105/1857 * 100, Lose = 752/1857 * 100)
+print(herald_win_rate)
+```
+
+//Observation: Players securing Herald increases your chances of winning a game by 59%, whereas the likelihood of losing is 40%. //Observation: Players that did not get herald have a 48% of winning the game and a 52% of losing the game. 
+
+//Observation: In conclusion, having more towers, gold, minion death, and objective lead contributes to higher odds of winning. Acquiring Herald strengthens your chances of winning by adding to your existing advantage of towers, gold, and objective lead.
+
